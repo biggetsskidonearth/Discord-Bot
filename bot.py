@@ -104,23 +104,3 @@ class XeioaBot(commands.Bot):
                 return match.group(0)
 
         return re.sub(r"\\x([0-9A-Fa-f]{2})", lambda m: chr(int(m.group(1), 16)), code)
-```
-
-# requirements.txt
-
-```txt
-discord.py
-```
-
-# Procfile
-
-```txt
-worker: python main.py
-```
-
-# Example Commands
-
-```txt
-!ping
-!deobf print(string.char(72,101,108,108,111))
-```
