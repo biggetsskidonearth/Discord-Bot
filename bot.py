@@ -7,53 +7,27 @@ import string
 import asyncio
 import discord
 from discord.ext import commands
+from discord import app_commands
 
 class XeioaBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
+        intents.guilds = True
+        intents.members = True
 
         super().__init__(
-            command_prefix="!",
+            command_prefix="/",
             intents=intents,
             help_command=None
         )
 
     async def setup_hook(self):
-        print("Bot setup complete")
+        await self.tree.sync()
+        print("Slash commands synced")
 
     async def on_ready(self):
         print(f"Logged in as {self.user}")
-
-    async def on_message(self, message):
-        if message.author.bot:
-            return
-
-        await self.process_commands(message)
-
-    @commands.command()
-    async def ping(self, ctx):
-        await ctx.send("Pong!")
-
-    @commands.command()
-    async def helpme(self, ctx):
-        embed = discord.Embed(
-            title="⚡ Xeioa Deobfr ⚡",
-            description="Advanced Roblox Lua Obfuscator & Deobfuscator",
-            color=0x00ff99
-        )
-
-        embed.add_field(
-            name="Commands",
-            value=(
-                "`!deobf <lua code>`\n"
-                "`!obf <lua code>`\n"
-                "You can also upload `.lua`, `.luau`, or `.txt` files."
-            ),
-            inline=False
-        )
-
-        await ctx.send(embed=embed)
 
     async def animated_status(self, msg, text):
         stages = [
@@ -65,19 +39,15 @@ class XeioaBot(commands.Bot):
 
         for _ in range(3):
             for stage in stages:
-                await msg.edit(
-                    content=f"```ansi\n\u001b[1;32m{stage}\u001b[0m\n```"
-                )
+                await msg.edit(content=f"```ansi\n\u001b[1;32m{stage}\u001b[0m\n```")
                 await asyncio.sleep(0.4)
 
-    async def get_code_input(self, ctx, code):
-        # Text argument provided
+    async def get_code_input(self, interaction, code):
         if code:
             return code
 
-        # File upload provided
-        if ctx.message.attachments:
-            attachment = ctx.message.attachments[0]
+        if interaction.attachments:
+            attachment = interaction.attachments[0]
 
             allowed = (
                 attachment.filename.endswith(".lua")
@@ -86,79 +56,26 @@ class XeioaBot(commands.Bot):
             )
 
             if not allowed:
-                await ctx.send(
-                    "Only `.lua`, `.luau`, and `.txt` files are supported."
+                await interaction.response.send_message(
+                    "Only `.lua`, `.luau`, and `.txt` files are supported.",
+                    ephemeral=True
                 )
                 return None
 
-            try:
-                data = await attachment.read()
-                return data.decode("utf-8", errors="ignore")
+            data = await attachment.read()
 
-            except Exception as e:
-                await ctx.send(f"Failed to read file: {e}")
-                return None
+            return data.decode("utf-8", errors="ignore")
 
-        await ctx.send(
-            "Provide code or upload a `.lua`, `.luau`, or `.txt` file."
+        await interaction.response.send_message(
+            "Provide code or upload a file.",
+            ephemeral=True
         )
 
         return None
 
-    @commands.command()
-    async def deobf(self, ctx, *, code=None):
-        code = await self.get_code_input(ctx, code)
-
-        if not code:
-            return
-
-        status = await ctx.send("Starting deobfuscation...")
-
-        await self.animated_status(status, "Deobfuscating")
-
-        result = self.advanced_deobfuscate(code)
-
-        if len(result) < 1900:
-            await status.edit(
-                content=f"```lua\n{result}\n```"
-            )
-        else:
-            file = discord.File(
-                io.BytesIO(result.encode()),
-                filename="deobfuscated.lua"
-            )
-
-            await status.delete()
-            await ctx.send(file=file)
-
-    @commands.command()
-    async def obf(self, ctx, *, code=None):
-        code = await self.get_code_input(ctx, code)
-
-        if not code:
-            return
-
-        status = await ctx.send("Starting obfuscation...")
-
-        await self.animated_status(status, "Obfuscating")
-
-        result = self.advanced_obfuscate(code)
-
-        if len(result) < 1900:
-            await status.edit(
-                content=f"```lua\n{result}\n```"
-            )
-        else:
-            file = discord.File(
-                io.BytesIO(result.encode()),
-                filename="obfuscated.lua"
-            )
-
-            await status.delete()
-            await ctx.send(file=file)
-
     def random_var(self):
         chars = string.ascii_letters + "Il"
+
         return ''.join(
             random.choice(chars)
             for _ in range(random.randint(15, 30))
@@ -202,30 +119,6 @@ class XeioaBot(commands.Bot):
             code
         )
 
-        junk = [
-            "--[[ protected ]]",
-            "--[[ xeioa ]]",
-            "--[[ encrypted ]]",
-            "--[[ anti skid ]]"
-        ]
-
-        for _ in range(5):
-            pos = random.randint(0, len(code))
-            code = (
-                code[:pos]
-                + random.choice(junk)
-                + "\n"
-                + code[pos:]
-            )
-
-        fake_blocks = """
-if false then
-    print("Xeioa")
-end
-"""
-
-        code = fake_blocks + "\n" + code
-
         encoded = base64.b64encode(
             code.encode()
         ).decode()
@@ -241,51 +134,33 @@ loadstring(decoded)()
         return wrapper.strip()
 
     def advanced_deobfuscate(self, code: str) -> str:
-        code = self.normalize_whitespace(code)
-        code = self.remove_semicolon_spam(code)
-        code = self.decode_string_char(code)
-        code = self.decode_hex(code)
-        code = self.decode_decimal_escapes(code)
-        code = self.decode_base64_strings(code)
-        code = self.clean_variable_names(code)
-        code = self.remove_junk_comments(code)
-        code = self.unpack_concat_strings(code)
-        code = self.cleanup_control_flow(code)
-        return code.strip()
+        code = re.sub(r";+", ";", code)
 
-    def normalize_whitespace(self, code: str) -> str:
-        code = code.replace("\r\n", "\n")
-        code = re.sub(r"\n{3,}", "\n\n", code)
-        return code
-
-    def remove_semicolon_spam(self, code: str) -> str:
-        return re.sub(r";+", ";", code)
-
-    def decode_string_char(self, code: str) -> str:
         pattern = r"string\.char\((.*?)\)"
 
         def repl(match):
             try:
                 nums = match.group(1).split(",")
+
                 chars = ''.join(
                     chr(int(n.strip()))
                     for n in nums
                 )
+
                 return f'"{chars}"'
+
             except:
                 return match.group(0)
 
-        return re.sub(pattern, repl, code)
+        code = re.sub(pattern, repl, code)
 
-    def decode_hex(self, code: str) -> str:
-        return re.sub(
+        code = re.sub(
             r"\\x([0-9A-Fa-f]{2})",
             lambda m: chr(int(m.group(1), 16)),
             code
         )
 
-    def decode_decimal_escapes(self, code: str) -> str:
-        return re.sub(
+        code = re.sub(
             r"\\([0-9]{1,3})",
             lambda m: chr(int(m.group(1)))
             if int(m.group(1)) < 256
@@ -293,93 +168,213 @@ loadstring(decoded)()
             code
         )
 
-    def decode_base64_strings(self, code: str) -> str:
-        pattern = r'"([A-Za-z0-9+/=]{16,})"'
+        return code.strip()
 
-        def repl(match):
-            s = match.group(1)
 
-            try:
-                decoded = base64.b64decode(
-                    s
-                ).decode("utf-8")
+bot = XeioaBot()
 
-                if all(
-                    32 <= ord(c) < 127
-                    or c in "\n\t"
-                    for c in decoded
-                ):
-                    return f'"{decoded}"'
 
-            except:
-                pass
+@bot.tree.command(name="cmds", description="Show all commands")
+async def cmds(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="⚡ Xeioa Commands ⚡",
+        description="Advanced Roblox Lua Utility Bot",
+        color=0x00ff99
+    )
 
-            return match.group(0)
+    embed.add_field(
+        name="/deobf",
+        value="Deobfuscate Lua/Luau code or uploaded files",
+        inline=False
+    )
 
-        return re.sub(pattern, repl, code)
+    embed.add_field(
+        name="/obf",
+        value="Obfuscate Lua/Luau code",
+        inline=False
+    )
 
-    def clean_variable_names(self, code: str) -> str:
-        replacements = {}
-        counter = 1
+    embed.add_field(
+        name="/lc",
+        value="Lock a channel so normal users cannot type",
+        inline=False
+    )
 
-        pattern = r"\b([Il]{5,}|[a-zA-Z_]{18,})\b"
+    embed.add_field(
+        name="/ping",
+        value="Check bot latency",
+        inline=False
+    )
 
-        matches = re.findall(pattern, code)
+    embed.set_footer(text="Xeioa Deobfr")
 
-        for var in matches:
-            if var not in replacements:
-                replacements[var] = f"var_{counter}"
-                counter += 1
+    await interaction.response.send_message(embed=embed)
 
-        for old, new in replacements.items():
-            code = re.sub(
-                rf"\b{re.escape(old)}\b",
-                new,
-                code
+
+@bot.tree.command(name="ping", description="Ping the bot")
+async def ping(interaction: discord.Interaction):
+    latency = round(bot.latency * 1000)
+
+    await interaction.response.send_message(
+        f"🏓 Pong! `{latency}ms`"
+    )
+
+
+@bot.tree.command(name="deobf", description="Deobfuscate Lua code")
+@app_commands.describe(
+    code="Lua code",
+    file="Upload a .lua/.luau/.txt file"
+)
+async def deobf(
+    interaction: discord.Interaction,
+    code: str = None,
+    file: discord.Attachment = None
+):
+    if file:
+        allowed = (
+            file.filename.endswith(".lua")
+            or file.filename.endswith(".luau")
+            or file.filename.endswith(".txt")
+        )
+
+        if not allowed:
+            await interaction.response.send_message(
+                "Invalid file type.",
+                ephemeral=True
             )
+            return
 
-        return code
+        data = await file.read()
 
-    def remove_junk_comments(self, code: str) -> str:
-        return re.sub(
-            r"--\[\[[\s\S]*?\]\]",
-            "",
-            code
+        code = data.decode("utf-8", errors="ignore")
+
+    if not code:
+        await interaction.response.send_message(
+            "Provide code or upload a file.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.send_message(
+        "```ansi\n\u001b[1;32mDeobfuscating...\u001b[0m\n```"
+    )
+
+    msg = await interaction.original_response()
+
+    await bot.animated_status(msg, "Deobfuscating")
+
+    result = bot.advanced_deobfuscate(code)
+
+    if len(result) < 1900:
+        await msg.edit(
+            content=f"```lua\n{result}\n```"
         )
 
-    def unpack_concat_strings(self, code: str) -> str:
-        pattern = r'"([^"]*)"\s*\.\.\s*"([^"]*)"'
+    else:
+        out = discord.File(
+            io.BytesIO(result.encode()),
+            filename="deobfuscated.lua"
+        )
 
-        while re.search(pattern, code):
-            code = re.sub(
-                pattern,
-                lambda m: f'"{m.group(1) + m.group(2)}"',
-                code
+        await msg.delete()
+
+        await interaction.channel.send(file=out)
+
+
+@bot.tree.command(name="obf", description="Obfuscate Lua code")
+@app_commands.describe(
+    code="Lua code",
+    file="Upload a .lua/.luau/.txt file"
+)
+async def obf(
+    interaction: discord.Interaction,
+    code: str = None,
+    file: discord.Attachment = None
+):
+    if file:
+        allowed = (
+            file.filename.endswith(".lua")
+            or file.filename.endswith(".luau")
+            or file.filename.endswith(".txt")
+        )
+
+        if not allowed:
+            await interaction.response.send_message(
+                "Invalid file type.",
+                ephemeral=True
             )
+            return
 
-        return code
+        data = await file.read()
 
-    def cleanup_control_flow(self, code: str) -> str:
-        code = re.sub(
-            r"if false then.*?end",
-            "",
-            code,
-            flags=re.S
+        code = data.decode("utf-8", errors="ignore")
+
+    if not code:
+        await interaction.response.send_message(
+            "Provide code or upload a file.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.send_message(
+        "```ansi\n\u001b[1;32mObfuscating...\u001b[0m\n```"
+    )
+
+    msg = await interaction.original_response()
+
+    await bot.animated_status(msg, "Obfuscating")
+
+    result = bot.advanced_obfuscate(code)
+
+    if len(result) < 1900:
+        await msg.edit(
+            content=f"```lua\n{result}\n```"
         )
 
-        code = re.sub(
-            r"if true then",
-            "",
-            code
+    else:
+        out = discord.File(
+            io.BytesIO(result.encode()),
+            filename="obfuscated.lua"
         )
 
-        code = re.sub(
-            r"while true do",
-            "while true do -- infinite loop",
-            code
-        )
+        await msg.delete()
 
-        return code
+        await interaction.channel.send(file=out)
+
+
+@bot.tree.command(name="lc", description="Lock a channel")
+@app_commands.describe(
+    channel="Select channel to lock"
+)
+async def lockchannel(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel
+):
+    if not interaction.user.guild_permissions.manage_channels:
+        await interaction.response.send_message(
+            "You do not have permission.",
+            ephemeral=True
+        )
+        return
+
+    overwrite = channel.overwrites_for(
+        interaction.guild.default_role
+    )
+
+    overwrite.send_messages = False
+
+    await channel.set_permissions(
+        interaction.guild.default_role,
+        overwrite=overwrite
+    )
+
+    embed = discord.Embed(
+        title="🔒 Channel Locked",
+        description=f"{channel.mention} has been locked.",
+        color=0xff0000
+    )
+
+    await interaction.response.send_message(embed=embed)
 
 
 def main():
@@ -388,10 +383,9 @@ def main():
     token = os.getenv("XEIOA_TOKEN")
 
     if not token:
-        print("ERROR: XEIOA_TOKEN environment variable not set")
+        print("ERROR: XEIOA_TOKEN not set")
         return
 
-    bot = XeioaBot()
     bot.run(token)
 
 
